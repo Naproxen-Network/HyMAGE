@@ -4,8 +4,6 @@ HyMAGE is an LLM-driven framework for generating realistic synthetic hypergraphs
 
 This repository is the official implementation of **HyMAGE: Semantic-Aware Dynamic Hypergraph Generation**.
 
-This repository is organized around the core HyMAGE generation pipeline. It keeps the upstream generation workflow from [anon-researcher-hub/HyMAGE](https://github.com/anon-researcher-hub/HyMAGE) and includes lightweight structural analysis and annotation tools.
-
 ![Main Mechanism](Fig/Main.png)
 
 ## Pipeline
