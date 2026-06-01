@@ -1,0 +1,1048 @@
+{% extends "base.html" %}
+{% block title %}Hypergraph Annotation — HyperBench{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-pen-fancy me-2"></i><span data-i18n="nav_annotate">Hypergraph Annotation</span></h1>
+    <p class="lead">Manually build hypergraphs with rich node profiles and labeled hyperedges</p>
+</div>
+
+<div class="row g-4">
+    <!-- ═══════════ Left Panel ═══════════ -->
+    <div class="col-lg-4">
+        <div class="card glass-card sticky-top" style="top:80px">
+            <div class="card-body">
+
+                <!-- Project Management -->
+                <h5><i class="fas fa-folder-open me-2"></i>Project</h5>
+                <div class="d-flex gap-2 mb-3">
+                    <select class="form-select dark-input" id="annoProjectSelect" onchange="loadProject()">
+                        <option value="">-- Select Project --</option>
+                    </select>
+                    <button class="btn btn-primary btn-sm px-3" onclick="showCreateModal()" title="New Project">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+
+                <!-- Project Info (hidden until loaded) -->
+                <div id="projectPanel" style="display:none">
+
+                    <!-- Network Type Badge -->
+                    <div class="mb-3" id="networkTypeBadge"></div>
+
+                    <!-- Stats -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-4">
+                            <div class="stat-card">
+                                <div class="stat-num" id="statProfiles">0</div>
+                                <div class="stat-label">Profiles</div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="stat-card">
+                                <div class="stat-num" id="statEdges">0</div>
+                                <div class="stat-label">Edges</div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="stat-card">
+                                <div class="stat-num" id="statLabels">0</div>
+                                <div class="stat-label">Labels</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="border-secondary">
+
+                    <!-- Labels Management -->
+                    <h6><i class="fas fa-tags me-1"></i>Predefined Labels</h6>
+                    <div id="labelsContainer" class="mb-2" style="min-height:30px"></div>
+                    <div class="input-group input-group-sm mb-3">
+                        <input type="text" class="form-control dark-input" id="newLabelInput"
+                               placeholder="Add new label..." onkeydown="if(event.key==='Enter')addLabel()">
+                        <button class="btn btn-outline-primary" onclick="addLabel()">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+
+                    <hr class="border-secondary">
+
+                    <!-- Export -->
+                    <h6><i class="fas fa-download me-1"></i>Export</h6>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-primary flex-fill" onclick="downloadFile('profiles.json')">
+                            <i class="fas fa-file-code me-1"></i>profiles.json
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary flex-fill" onclick="downloadFile('hyperedges.txt')">
+                            <i class="fas fa-file-alt me-1"></i>hyperedges.txt
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════ Right Panel ═══════════ -->
+    <div class="col-lg-8">
+
+        <!-- Placeholder -->
+        <div id="annoPlaceholder" class="text-center py-5">
+            <i class="fas fa-pen-fancy fa-4x text-muted mb-3"></i>
+            <h4 class="text-muted">Select or create a project to start annotating</h4>
+        </div>
+
+        <!-- Annotation Form (hidden until project loaded) -->
+        <div id="annoForm" style="display:none">
+
+            <!-- Edge Configuration -->
+            <div class="card glass-card mb-4">
+                <div class="card-body">
+                    <h5><i class="fas fa-draw-polygon me-2"></i>New Hyperedge</h5>
+
+                    <!-- AI Text Parser -->
+                    <div class="card glass-card-inner mb-3" style="border:2px solid var(--accent-purple)">
+                        <div class="card-body">
+                            <h6 class="mb-2">
+                                <i class="fas fa-robot text-primary me-1"></i>
+                                AI Text Parser (GPT-3.5 Turbo)
+                                <span id="aiStatusBadge" class="badge bg-secondary ms-2" style="font-size:0.7rem">
+                                    <i class="fas fa-spinner fa-spin"></i> Checking...
+                                </span>
+                            </h6>
+                            <p class="small text-muted mb-2">
+                                Paste paper text/abstract below. AI will extract metadata and authors automatically.
+                            </p>
+                            <textarea class="form-control dark-input mb-2" id="aiTextInput" rows="6"
+                                      placeholder="Paste paper text, abstract, or any relevant information here..."></textarea>
+                            <button class="btn btn-primary btn-sm" onclick="aiParseText()" id="btnAIParse">
+                                <i class="fas fa-magic me-1"></i>Parse with AI
+                            </button>
+                            <small class="text-muted ms-2 d-block mt-1" id="aiStatusText">
+                                <i class="fas fa-info-circle"></i>
+                                Requires OpenAI API key (from OPENAI_API_KEY env var or api-key.txt file). AI will extract paper metadata and authors, matching existing profiles automatically.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <!-- Edge Label -->
+                        <div class="col-md-6">
+                            <label class="form-label">Edge Label (Category)</label>
+                            <select class="form-select dark-input" id="edgeLabelSelect">
+                                <option value="">-- Select Label --</option>
+                            </select>
+                        </div>
+                        <!-- Edge Size -->
+                        <div class="col-md-6">
+                            <label class="form-label">Hyperedge Size (n nodes)</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control dark-input" id="edgeSizeInput"
+                                       min="1" max="100" value="3" placeholder="e.g. 3">
+                                <button class="btn btn-primary" onclick="generateProfileSlots()">
+                                    <i class="fas fa-th me-1"></i>Generate
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Profile Slots Container -->
+                    <div id="profileSlotsContainer"></div>
+
+                    <!-- Edge Metadata (optional) -->
+                    <div id="edgeMetadataContainer" class="mt-3" style="display:none">
+                        <h6 class="text-muted"><i class="fas fa-info-circle me-1"></i>Edge Metadata (optional)</h6>
+                        <div id="edgeMetaFields"></div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button class="btn btn-primary w-100 btn-lg mt-3" id="btnSubmitEdge"
+                            onclick="submitEdge()" style="display:none">
+                        <i class="fas fa-plus-circle me-2"></i>Add Hyperedge
+                    </button>
+                </div>
+            </div>
+
+            <!-- Recent Edges -->
+            <div class="card glass-card">
+                <div class="card-body">
+                    <h5><i class="fas fa-history me-2"></i>Recent Hyperedges</h5>
+                    <div id="recentEdgesContainer">
+                        <span class="text-muted small">No edges yet</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════ Create Project Modal ═══════════ -->
+<div class="modal fade" id="createProjectModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus-circle text-primary me-2"></i>Create New Project</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Project Name</label>
+                    <input type="text" class="form-control dark-input" id="newProjectName"
+                           placeholder="e.g. CS_Collaboration">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Network Type</label>
+                    <div id="networkTypeOptions" class="row g-2"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Initial Labels <span class="text-muted">(comma-separated)</span></label>
+                    <input type="text" class="form-control dark-input" id="newProjectLabels"
+                           placeholder="e.g. Machine Learning, Systems, Theory, Networks">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="createProject()">
+                    <i class="fas fa-check me-1"></i>Create
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ═══════════════════════ State ═══════════════════════
+let currentProject = null;   // project name
+let projectConfig = null;
+let projectProfiles = {};
+let projectEdges = [];
+let typeInfo = null;          // NETWORK_TYPES[type]
+let networkTypes = {};
+
+// ═══════════════════════ Init ═══════════════════════
+document.addEventListener('DOMContentLoaded', async () => {
+    // Load network types
+    const r = await fetch('/api/annotate/network-types');
+    networkTypes = await r.json();
+    renderNetworkTypeOptions();
+    loadProjectList();
+});
+
+function renderNetworkTypeOptions() {
+    const container = document.getElementById('networkTypeOptions');
+    container.innerHTML = '';
+    let first = true;
+    for (const [key, info] of Object.entries(networkTypes)) {
+        container.innerHTML += `
+            <div class="col-6">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="netType"
+                           id="nt_${key}" value="${key}" ${first ? 'checked' : ''}>
+                    <label class="form-check-label" for="nt_${key}">
+                        <i class="fas ${info.icon} me-1 text-muted"></i>${info.label}
+                    </label>
+                </div>
+            </div>`;
+        first = false;
+    }
+}
+
+// ═══════════════════════ Project Management ═══════════════════════
+async function loadProjectList() {
+    const r = await fetch('/api/annotate/projects');
+    const projects = await r.json();
+    const sel = document.getElementById('annoProjectSelect');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">-- Select Project --</option>';
+    projects.forEach(p => {
+        sel.innerHTML += `<option value="${p.name}" ${p.name === current ? 'selected' : ''}>
+            ${p.name} (${p.profile_count}P / ${p.edge_count}E)
+        </option>`;
+    });
+}
+
+function showCreateModal() {
+    new bootstrap.Modal(document.getElementById('createProjectModal')).show();
+}
+
+async function createProject() {
+    const name = document.getElementById('newProjectName').value.trim();
+    const netType = document.querySelector('input[name="netType"]:checked')?.value || 'other';
+    const labelsStr = document.getElementById('newProjectLabels').value.trim();
+    const labels = labelsStr ? labelsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+    if (!name) { showToast('Please enter a project name', 'warning'); return; }
+
+    const r = await fetch('/api/annotate/projects', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name, network_type: netType, labels })
+    });
+    const data = await r.json();
+    if (data.error) { showToast(data.error, 'danger'); return; }
+
+    bootstrap.Modal.getInstance(document.getElementById('createProjectModal')).hide();
+    showToast(`Project "${data.name}" created!`, 'success');
+    await loadProjectList();
+
+    // Auto-select
+    document.getElementById('annoProjectSelect').value = data.name;
+    loadProject();
+}
+
+async function loadProject() {
+    const name = document.getElementById('annoProjectSelect').value;
+    if (!name) {
+        document.getElementById('projectPanel').style.display = 'none';
+        document.getElementById('annoForm').style.display = 'none';
+        document.getElementById('annoPlaceholder').style.display = 'block';
+        currentProject = null;
+        return;
+    }
+
+    const r = await fetch(`/api/annotate/project/${name}`);
+    const data = await r.json();
+    if (data.error) { showToast(data.error, 'danger'); return; }
+
+    currentProject = name;
+    projectConfig = data.config;
+    projectProfiles = data.profiles;
+    projectEdges = data.edges;
+    typeInfo = data.type_info;
+
+    document.getElementById('projectPanel').style.display = 'block';
+    document.getElementById('annoForm').style.display = 'block';
+    document.getElementById('annoPlaceholder').style.display = 'none';
+
+    // Network type badge
+    const nt = projectConfig.network_type;
+    const ntInfo = networkTypes[nt] || networkTypes['other'];
+    document.getElementById('networkTypeBadge').innerHTML = `
+        <span class="badge" style="background:linear-gradient(135deg,#f59e0b,#ef4444);font-size:0.8rem;padding:6px 12px">
+            <i class="fas ${ntInfo.icon} me-1"></i>${ntInfo.label}
+        </span>`;
+
+    updateStats();
+    renderLabels();
+    renderEdgeLabelOptions();
+    renderEdgeMetadataFields();
+    renderRecentEdges();
+
+    // Clear profile slots
+    document.getElementById('profileSlotsContainer').innerHTML = '';
+    document.getElementById('btnSubmitEdge').style.display = 'none';
+
+    // Check AI API status
+    checkAIStatus();
+}
+
+async function checkAIStatus() {
+    if (!currentProject) return;
+
+    const badge = document.getElementById('aiStatusBadge');
+    const statusText = document.getElementById('aiStatusText');
+    
+    try {
+        const r = await fetch(`/api/annotate/project/${currentProject}/ai-parse/test`);
+        if (r.ok) {
+            const data = await r.json();
+            if (data.status === 'ready') {
+                badge.className = 'badge bg-success ms-2';
+                badge.innerHTML = '<i class="fas fa-check"></i> Ready';
+                const baseUrlInfo = data.base_url ? ` (${data.base_url})` : '';
+                statusText.innerHTML = `<i class="fas fa-check-circle text-success"></i> AI parser is ready${baseUrlInfo}. Paste text and click "Parse with AI".`;
+            } else {
+                badge.className = 'badge bg-warning text-dark ms-2';
+                badge.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Not Ready';
+                let msg = 'AI parser not ready: ';
+                if (!data.has_openai_lib) {
+                    msg += 'openai library not installed. ';
+                }
+                if (!data.has_api_key) {
+                    if (data.api_key_source === 'none') {
+                        msg += 'API key not found. Set OPENAI_API_KEY env var or create api-key.txt file (same as Hypergraph-Generator). ';
+                    }
+                } else {
+                    const baseUrlInfo = data.base_url ? ` (${data.base_url})` : '';
+                    msg += `API key loaded from ${data.api_key_source}${baseUrlInfo}. `;
+                }
+                statusText.innerHTML = `<i class="fas fa-exclamation-triangle text-warning"></i> ${msg}`;
+            }
+        } else {
+            badge.className = 'badge bg-danger ms-2';
+            badge.innerHTML = '<i class="fas fa-times"></i> Error';
+            statusText.innerHTML = '<i class="fas fa-times-circle text-danger"></i> Failed to check AI status.';
+        }
+    } catch (err) {
+        badge.className = 'badge bg-danger ms-2';
+        badge.innerHTML = '<i class="fas fa-times"></i> Error';
+        statusText.innerHTML = '<i class="fas fa-times-circle text-danger"></i> Network error checking AI status.';
+    }
+}
+
+function updateStats() {
+    document.getElementById('statProfiles').textContent = Object.keys(projectProfiles).length;
+    document.getElementById('statEdges').textContent = projectEdges.length;
+    document.getElementById('statLabels').textContent = (projectConfig.labels || []).length;
+}
+
+// ═══════════════════════ Labels Management ═══════════════════════
+function renderLabels() {
+    const container = document.getElementById('labelsContainer');
+    const labels = projectConfig.labels || [];
+    if (labels.length === 0) {
+        container.innerHTML = '<span class="text-muted small">No labels defined. Add some below.</span>';
+        return;
+    }
+    container.innerHTML = labels.map((l, i) => `
+        <span class="label-chip">
+            ${l}
+            <i class="fas fa-times remove-label" onclick="removeLabel(${i})"></i>
+        </span>
+    `).join('');
+}
+
+async function addLabel() {
+    const input = document.getElementById('newLabelInput');
+    const val = input.value.trim();
+    if (!val) return;
+
+    const labels = projectConfig.labels || [];
+    if (labels.includes(val)) { showToast('Label already exists', 'warning'); return; }
+    labels.push(val);
+
+    await saveLabels(labels);
+    input.value = '';
+}
+
+async function removeLabel(index) {
+    const labels = projectConfig.labels || [];
+    labels.splice(index, 1);
+    await saveLabels(labels);
+}
+
+async function saveLabels(labels) {
+    const r = await fetch(`/api/annotate/project/${currentProject}/labels`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ labels })
+    });
+    const data = await r.json();
+    if (data.error) { showToast(data.error, 'danger'); return; }
+    projectConfig.labels = data.labels;
+    renderLabels();
+    renderEdgeLabelOptions();
+    updateStats();
+}
+
+function renderEdgeLabelOptions() {
+    const sel = document.getElementById('edgeLabelSelect');
+    sel.innerHTML = '<option value="">-- Select Label --</option>';
+    (projectConfig.labels || []).forEach(l => {
+        sel.innerHTML += `<option value="${l}">${l}</option>`;
+    });
+}
+
+// ═══════════════════════ AI Text Parser ═══════════════════════
+async function aiParseText() {
+    const text = document.getElementById('aiTextInput').value.trim();
+    if (!text) {
+        showToast('Please enter some text to parse', 'warning');
+        return;
+    }
+
+    if (!currentProject) {
+        showToast('Please select a project first', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('btnAIParse');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Parsing...';
+    showLoading('AI is parsing text...');
+
+    try {
+        const r = await fetch(`/api/annotate/project/${currentProject}/ai-parse`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text })
+        });
+
+        // Check response status
+        if (!r.ok) {
+            const errorText = await r.text();
+            hideLoading();
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-magic me-1"></i>Parse with AI';
+            
+            // Try to parse as JSON for structured error
+            let errorMsg = `Server error (${r.status})`;
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorMsg = errorJson.error || errorMsg;
+            } catch {
+                // If not JSON, show raw text (truncated)
+                errorMsg = errorText.length > 200 ? errorText.substring(0, 200) + '...' : errorText;
+            }
+            showToast(errorMsg, 'danger');
+            return;
+        }
+
+        // Parse JSON response
+        let data;
+        try {
+            data = await r.json();
+        } catch (parseErr) {
+            hideLoading();
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-magic me-1"></i>Parse with AI';
+            showToast('Failed to parse server response. Make sure OPENAI_API_KEY is set correctly.', 'danger');
+            return;
+        }
+
+        hideLoading();
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-magic me-1"></i>Parse with AI';
+
+        if (data.error) {
+            showToast(data.error, 'danger');
+            return;
+        }
+
+        // Fill edge metadata
+        const metadata = data.edge_metadata || {};
+        if (metadata.paper_title) {
+            const titleEl = document.querySelector('[data-meta="paper_title"]');
+            if (titleEl) titleEl.value = metadata.paper_title;
+        }
+        if (metadata.category) {
+            const catSel = document.getElementById('meta_category');
+            if (catSel) {
+                // Check if category matches a label
+                const labels = projectConfig.labels || [];
+                const match = labels.find(l => l.toLowerCase() === metadata.category.toLowerCase());
+                if (match) {
+                    catSel.value = match;
+                } else {
+                    // Suggest new label
+                    showToast(`AI suggested category "${metadata.category}" - please add it as a label if needed`, 'info');
+                }
+            }
+            // Also set edge label if it matches
+            const edgeLabelSel = document.getElementById('edgeLabelSelect');
+            if (edgeLabelSel) {
+                const match = labels.find(l => l.toLowerCase() === metadata.category.toLowerCase());
+                if (match) edgeLabelSel.value = match;
+            }
+        }
+        if (metadata.abstract) {
+            const abstractEl = document.querySelector('[data-meta="abstract"]');
+            if (abstractEl) abstractEl.value = metadata.abstract;
+        }
+
+        // Set edge size and generate slots
+        const totalAuthors = data.matched_authors.length + data.new_authors.length;
+        if (totalAuthors > 0) {
+            document.getElementById('edgeSizeInput').value = totalAuthors;
+            generateProfileSlots();
+
+            // Wait a bit for slots to render, then fill them
+            setTimeout(() => {
+                fillSlotsFromAI(data.matched_authors, data.new_authors);
+            }, 300);
+        } else {
+            showToast('No authors found in text', 'warning');
+        }
+
+        showToast(`AI parsed: ${data.matched_authors.length} matched, ${data.new_authors.length} new authors`, 'success');
+
+    } catch (err) {
+        hideLoading();
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-magic me-1"></i>Parse with AI';
+        
+        let errorMsg = 'AI parsing error: ';
+        if (err instanceof TypeError && err.message.includes('fetch')) {
+            errorMsg += 'Network error. Check if server is running.';
+        } else if (err.message) {
+            errorMsg += err.message;
+        } else {
+            errorMsg += String(err);
+        }
+        showToast(errorMsg, 'danger');
+        console.error('AI parse error:', err);
+    }
+}
+
+function fillSlotsFromAI(matchedAuthors, newAuthors) {
+    const slots = document.querySelectorAll('.profile-slot');
+    const allAuthors = [...matchedAuthors, ...newAuthors];
+
+    for (let i = 0; i < Math.min(slots.length, allAuthors.length); i++) {
+        const slot = slots[i];
+        const author = allAuthors[i];
+        const slotId = `slot_${i}`;
+
+        // If matched author, set profile ID and mark as existing
+        if (author.id) {
+            slot.dataset.profileId = author.id;
+            slot.classList.add('filled');
+            document.getElementById(`${slotId}_idBadge`).textContent = `Existing #${author.id}`;
+            document.getElementById(`${slotId}_search`).value = author.name || `#${author.id}`;
+        } else {
+            // New author - show hint
+            document.getElementById(`${slotId}_idBadge`).innerHTML =
+                '<span class="badge bg-warning text-dark">New Author</span>';
+        }
+
+        // Fill label
+        const labelSel = document.getElementById(`${slotId}_label`);
+        if (labelSel && author.label) {
+            labelSel.value = author.label;
+        }
+
+        // Fill all fields
+        const fields = typeInfo.profile_fields || [];
+        for (const f of fields) {
+            const el = slot.querySelector(`[data-field="${f.key}"]`);
+            if (el && author[f.key]) {
+                el.value = author[f.key];
+            }
+        }
+    }
+
+    // Show edge metadata container
+    document.getElementById('edgeMetadataContainer').style.display = 'block';
+    document.getElementById('btnSubmitEdge').style.display = 'block';
+}
+
+// ═══════════════════════ Profile Slots Generation ═══════════════════════
+function generateProfileSlots() {
+    const n = parseInt(document.getElementById('edgeSizeInput').value) || 0;
+    if (n < 1 || n > 100) { showToast('Edge size must be 1–100', 'warning'); return; }
+
+    const container = document.getElementById('profileSlotsContainer');
+    container.innerHTML = '';
+
+    const fields = typeInfo.profile_fields || [];
+
+    for (let i = 0; i < n; i++) {
+        const slotId = `slot_${i}`;
+        let fieldsHtml = '';
+
+        // Search bar
+        fieldsHtml += `
+            <div class="position-relative mb-2">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                    <input type="text" class="form-control dark-input" placeholder="Search existing profile..."
+                           id="${slotId}_search" oninput="searchProfile(${i}, this.value)"
+                           onfocus="searchProfile(${i}, this.value)" autocomplete="off">
+                </div>
+                <div class="profile-search-results" id="${slotId}_results"></div>
+            </div>`;
+
+        // ── Primary Label (required for every profile) ──
+        const labelOpts = (projectConfig.labels || []).map(l =>
+            `<option value="${l}">${l}</option>`).join('');
+        fieldsHtml += `
+            <div class="col-md-6 mb-2">
+                <label class="form-label small fw-bold" style="color:var(--accent-blue)">
+                    <i class="fas fa-tag me-1"></i>Primary Label *
+                </label>
+                <select class="form-select form-select-sm dark-input" data-field="label" id="${slotId}_label">
+                    <option value="">-- Select Label --</option>${labelOpts}
+                </select>
+            </div>`;
+
+        // Profile fields
+        for (const f of fields) {
+            if (f.type === 'select') {
+                const opts = (f.options || []).map(o => `<option value="${o}">${o}</option>`).join('');
+                fieldsHtml += `
+                    <div class="col-md-6 mb-2">
+                        <label class="form-label small">${f.label}${f.required ? ' *' : ''}</label>
+                        <select class="form-select form-select-sm dark-input" data-field="${f.key}">
+                            <option value="">--</option>${opts}
+                        </select>
+                    </div>`;
+            } else if (f.type === 'textarea') {
+                fieldsHtml += `
+                    <div class="col-12 mb-2">
+                        <label class="form-label small">${f.label}${f.required ? ' *' : ''}</label>
+                        <textarea class="form-control form-control-sm dark-input" rows="2"
+                                  data-field="${f.key}" placeholder="${f.label}"></textarea>
+                    </div>`;
+            } else {
+                const inputType = f.type === 'number' ? 'number' : 'text';
+                fieldsHtml += `
+                    <div class="col-md-6 mb-2">
+                        <label class="form-label small">${f.label}${f.required ? ' *' : ''}</label>
+                        <input type="${inputType}" class="form-control form-control-sm dark-input"
+                               data-field="${f.key}" placeholder="${f.label}">
+                    </div>`;
+            }
+        }
+
+        // Custom fields area
+        fieldsHtml += `
+            <div class="col-12" id="${slotId}_custom"></div>
+            <div class="col-12">
+                <button class="btn btn-sm btn-outline-secondary" onclick="addCustomField('${slotId}')">
+                    <i class="fas fa-plus me-1"></i>Add Custom Field
+                </button>
+            </div>`;
+
+        container.innerHTML += `
+            <div class="profile-slot" id="${slotId}" data-profile-id="">
+                <div class="profile-slot-header">
+                    <span class="profile-slot-number">
+                        <i class="fas fa-user me-1"></i>Node ${i + 1}
+                    </span>
+                    <span class="profile-slot-id" id="${slotId}_idBadge"></span>
+                </div>
+                <div class="row g-2">
+                    ${fieldsHtml}
+                </div>
+            </div>`;
+    }
+
+    // Show edge metadata & submit button
+    document.getElementById('edgeMetadataContainer').style.display = 'block';
+    document.getElementById('btnSubmitEdge').style.display = 'block';
+
+    // Close search results on outside click
+    document.addEventListener('click', (e) => {
+        document.querySelectorAll('.profile-search-results').forEach(r => {
+            if (!r.parentElement.contains(e.target)) r.classList.remove('show');
+        });
+    });
+}
+
+// ═══════════════════════ Profile Search ═══════════════════════
+let searchTimeout = null;
+
+function searchProfile(slotIndex, query) {
+    const resultsDiv = document.getElementById(`slot_${slotIndex}_results`);
+    if (!query || query.length < 1) {
+        // Show all profiles if empty query and focused
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => doSearch(slotIndex, ''), 200);
+        return;
+    }
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => doSearch(slotIndex, query), 250);
+}
+
+async function doSearch(slotIndex, query) {
+    const resultsDiv = document.getElementById(`slot_${slotIndex}_results`);
+    const r = await fetch(`/api/annotate/project/${currentProject}/search?q=${encodeURIComponent(query)}`);
+    const profiles = await r.json();
+
+    if (profiles.length === 0) {
+        resultsDiv.innerHTML = '<div class="profile-search-item text-muted">No profiles found</div>';
+        resultsDiv.classList.add('show');
+        return;
+    }
+
+    resultsDiv.innerHTML = profiles.map(p => {
+        const nameField = p.name || p.drug_name || p.protein_name || Object.values(p).find(v => typeof v === 'string') || '';
+        const detailParts = [];
+        if (p.workplace) detailParts.push(p.workplace);
+        if (p.title) detailParts.push(p.title);
+        if (p.research_interests) detailParts.push(p.research_interests);
+        if (p.organism) detailParts.push(p.organism);
+        if (p.drug_type) detailParts.push(p.drug_type);
+        const detail = detailParts.join(' · ');
+        const labelBadge = p.label
+            ? `<span class="badge bg-info" style="font-size:0.65rem;margin-left:4px">${p.label}</span>` : '';
+        return `<div class="profile-search-item" onclick="selectProfile(${slotIndex}, '${p.id}')">
+            <span class="pid">#${p.id}</span>
+            <span class="pname">${nameField}</span>${labelBadge}
+            ${detail ? `<div class="pdetail">${detail}</div>` : ''}
+        </div>`;
+    }).join('');
+    resultsDiv.classList.add('show');
+}
+
+function selectProfile(slotIndex, profileId) {
+    const slotId = `slot_${slotIndex}`;
+    const slot = document.getElementById(slotId);
+    const profile = projectProfiles[profileId];
+    if (!profile) return;
+
+    // Set profile ID
+    slot.dataset.profileId = profileId;
+    slot.classList.add('filled');
+    document.getElementById(`${slotId}_idBadge`).textContent = `Existing #${profileId}`;
+
+    // Fill label
+    const labelSel = document.getElementById(`${slotId}_label`);
+    if (labelSel && profile.label) {
+        labelSel.value = profile.label;
+    }
+
+    // Fill fields
+    const fields = typeInfo.profile_fields || [];
+    for (const f of fields) {
+        const el = slot.querySelector(`[data-field="${f.key}"]`);
+        if (el && profile[f.key] !== undefined) {
+            el.value = profile[f.key];
+        }
+    }
+
+    // Fill custom fields
+    const customDiv = document.getElementById(`${slotId}_custom`);
+    customDiv.innerHTML = '';
+    if (profile.custom && typeof profile.custom === 'object') {
+        for (const [ck, cv] of Object.entries(profile.custom)) {
+            addCustomFieldWithValue(slotId, ck, cv);
+        }
+    }
+
+    // Hide search results
+    document.getElementById(`${slotId}_results`).classList.remove('show');
+    document.getElementById(`${slotId}_search`).value = profile.name || `#${profileId}`;
+}
+
+// ═══════════════════════ Custom Fields ═══════════════════════
+let customFieldCounter = 0;
+
+function addCustomField(slotId) {
+    addCustomFieldWithValue(slotId, '', '');
+}
+
+function addCustomFieldWithValue(slotId, key, value) {
+    const container = document.getElementById(`${slotId}_custom`);
+    const fid = `cf_${customFieldCounter++}`;
+    const html = `
+        <div class="custom-field-row" id="${fid}">
+            <input type="text" class="form-control form-control-sm dark-input" placeholder="Field name"
+                   value="${key}" data-custom-key>
+            <input type="text" class="form-control form-control-sm dark-input" placeholder="Value"
+                   value="${value}" data-custom-value>
+            <button class="btn btn-sm btn-outline-danger btn-remove-field"
+                    onclick="document.getElementById('${fid}').remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>`;
+    container.insertAdjacentHTML('beforeend', html);
+}
+
+// ═══════════════════════ Edge Metadata Fields ═══════════════════════
+function renderEdgeMetadataFields() {
+    const container = document.getElementById('edgeMetaFields');
+    container.innerHTML = '';
+    const edgeFields = typeInfo.edge_fields || [];
+
+    for (const f of edgeFields) {
+        if (f.type === 'label_select') {
+            container.innerHTML += `
+                <div class="mb-2">
+                    <label class="form-label small">${f.label}</label>
+                    <select class="form-select form-select-sm dark-input" data-meta="${f.key}" id="meta_${f.key}">
+                        <option value="">--</option>
+                    </select>
+                </div>`;
+        } else if (f.type === 'textarea') {
+            container.innerHTML += `
+                <div class="mb-2">
+                    <label class="form-label small">${f.label}</label>
+                    <textarea class="form-control form-control-sm dark-input" rows="2"
+                              data-meta="${f.key}" placeholder="${f.label}"></textarea>
+                </div>`;
+        } else {
+            container.innerHTML += `
+                <div class="mb-2">
+                    <label class="form-label small">${f.label}</label>
+                    <input type="text" class="form-control form-control-sm dark-input"
+                           data-meta="${f.key}" placeholder="${f.label}">
+                </div>`;
+        }
+    }
+
+    // Populate label_select with project labels
+    const metaCatSel = document.getElementById('meta_category');
+    if (metaCatSel) {
+        (projectConfig.labels || []).forEach(l => {
+            metaCatSel.innerHTML += `<option value="${l}">${l}</option>`;
+        });
+    }
+}
+
+// ═══════════════════════ Submit Hyperedge ═══════════════════════
+async function submitEdge() {
+    const edgeLabel = document.getElementById('edgeLabelSelect').value;
+    const slots = document.querySelectorAll('.profile-slot');
+
+    if (slots.length === 0) {
+        showToast('Please generate profile slots first', 'warning');
+        return;
+    }
+
+    // Collect profiles
+    const profilesList = [];
+    const requiredFields = (typeInfo.profile_fields || []).filter(f => f.required).map(f => f.key);
+
+    for (let i = 0; i < slots.length; i++) {
+        const slot = slots[i];
+        const existingId = slot.dataset.profileId || null;
+        const profile = {};
+
+        if (existingId) profile.id = existingId;
+
+        // Read primary label
+        const labelSel = slot.querySelector('[data-field="label"]');
+        if (labelSel && labelSel.value) {
+            profile.label = labelSel.value;
+        }
+
+        // Read standard fields
+        const fields = typeInfo.profile_fields || [];
+        for (const f of fields) {
+            const el = slot.querySelector(`[data-field="${f.key}"]`);
+            if (el) {
+                let val = el.value.trim();
+                if (f.type === 'number' && val) val = parseInt(val);
+                if (val !== '' && val !== null) profile[f.key] = val;
+            }
+        }
+
+        // Check required fields (only for new profiles)
+        if (!existingId) {
+            if (!profile.label) {
+                showToast(`Node ${i+1}: "Primary Label" is required`, 'warning');
+                return;
+            }
+            for (const rk of requiredFields) {
+                if (!profile[rk]) {
+                    showToast(`Node ${i+1}: "${rk}" is required`, 'warning');
+                    return;
+                }
+            }
+        }
+
+        // Read custom fields
+        const customRows = slot.querySelectorAll('.custom-field-row');
+        if (customRows.length > 0) {
+            profile.custom = {};
+            customRows.forEach(row => {
+                const k = row.querySelector('[data-custom-key]').value.trim();
+                const v = row.querySelector('[data-custom-value]').value.trim();
+                if (k) profile.custom[k] = v;
+            });
+        }
+
+        profilesList.push(profile);
+    }
+
+    // Collect metadata
+    const metadata = {};
+    document.querySelectorAll('[data-meta]').forEach(el => {
+        const key = el.dataset.meta;
+        const val = el.value.trim();
+        if (val) metadata[key] = val;
+    });
+
+    showLoading('Adding hyperedge...');
+    try {
+        const r = await fetch(`/api/annotate/project/${currentProject}/edge`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                label: edgeLabel,
+                profiles: profilesList,
+                metadata
+            })
+        });
+        const data = await r.json();
+        hideLoading();
+
+        if (data.error) { showToast(data.error, 'danger'); return; }
+
+        showToast(`Hyperedge #${data.edge.id} added! (${data.edge.node_ids.length} nodes)`, 'success');
+
+        // Refresh project data
+        const pr = await fetch(`/api/annotate/project/${currentProject}`);
+        const pdata = await pr.json();
+        projectProfiles = pdata.profiles;
+        projectEdges = pdata.edges;
+        projectConfig = pdata.config;
+
+        updateStats();
+        renderRecentEdges();
+
+        // Clear form
+        document.getElementById('profileSlotsContainer').innerHTML = '';
+        document.getElementById('edgeMetadataContainer').style.display = 'none';
+        document.getElementById('btnSubmitEdge').style.display = 'none';
+        document.querySelectorAll('[data-meta]').forEach(el => el.value = '');
+
+    } catch (err) {
+        hideLoading();
+        showToast('Error: ' + err, 'danger');
+    }
+}
+
+// ═══════════════════════ Recent Edges ═══════════════════════
+function renderRecentEdges() {
+    const container = document.getElementById('recentEdgesContainer');
+    if (!projectEdges || projectEdges.length === 0) {
+        container.innerHTML = '<span class="text-muted small">No edges yet</span>';
+        return;
+    }
+
+    // Show most recent first (up to 20)
+    const recent = [...projectEdges].reverse().slice(0, 20);
+    container.innerHTML = recent.map(e => {
+        const nodeItems = e.node_ids.map(nid => {
+            const p = projectProfiles[String(nid)];
+            const name = p ? (p.name || `#${nid}`) : `#${nid}`;
+            const plabel = p?.label ? `<span class="badge bg-secondary" style="font-size:0.6rem;margin-left:3px">${p.label}</span>` : '';
+            return `<span>${name}${plabel}</span>`;
+        });
+        const title = e.metadata?.paper_title || e.metadata?.group_name ||
+                      e.metadata?.complex_name || e.metadata?.edge_name || '';
+        return `
+            <div class="edge-row">
+                <span class="edge-id">#${e.id}</span>
+                <div class="edge-nodes">
+                    <div>${nodeItems.join('<span class="text-muted mx-1">·</span>')}</div>
+                    ${title ? `<div class="text-muted small">${title}</div>` : ''}
+                </div>
+                ${e.label ? `<span class="badge bg-info edge-label-badge">${e.label}</span>` : ''}
+                <button class="btn btn-sm btn-outline-danger ms-2" onclick="deleteEdge(${e.id})" title="Delete">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>`;
+    }).join('');
+}
+
+async function deleteEdge(edgeId) {
+    if (!confirm(`Delete hyperedge #${edgeId}?`)) return;
+
+    const r = await fetch(`/api/annotate/project/${currentProject}/edge/${edgeId}`, {
+        method: 'DELETE'
+    });
+    const data = await r.json();
+    if (data.error) { showToast(data.error, 'danger'); return; }
+
+    // Refresh
+    const pr = await fetch(`/api/annotate/project/${currentProject}`);
+    const pdata = await pr.json();
+    projectProfiles = pdata.profiles;
+    projectEdges = pdata.edges;
+    updateStats();
+    renderRecentEdges();
+    showToast(`Edge #${edgeId} deleted`, 'info');
+}
+
+// ═══════════════════════ Export ═══════════════════════
+function downloadFile(filename) {
+    if (!currentProject) return;
+    window.open(`/api/annotate/project/${currentProject}/download/${filename}`, '_blank');
+}
+</script>
+{% endblock %}

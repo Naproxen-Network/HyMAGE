@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}Structural Metrics — HyperBench{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-chart-bar me-2"></i><span data-i18n="nav_structural">Structural Metrics</span></h1>
+    <p class="lead" data-i18n="structural_page_desc">Compare structural properties of hypergraphs across 8 patterns</p>
+</div>
+
+<div class="row g-4">
+    <!-- Config Panel -->
+    <div class="col-lg-4">
+        <div class="card glass-card sticky-top" style="top:80px">
+            <div class="card-body">
+                <h5><i class="fas fa-cog me-2"></i><span data-i18n="configuration">Configuration</span></h5>
+
+                <!-- Dataset Selection -->
+                <div class="mb-3">
+                    <label class="form-label" data-i18n="select_dataset">Select Dataset</label>
+                    <select class="form-select dark-input" id="structDataset" onchange="loadDatasetFiles('structDataset','structFiles')">
+                        <option value="">-- Select --</option>
+                    </select>
+                </div>
+
+                <!-- File Selection -->
+                <div class="mb-3">
+                    <label class="form-label" data-i18n="select_files">Select Files to Compare</label>
+                    <div id="structFiles" class="file-checklist"></div>
+                </div>
+
+                <!-- Or Upload -->
+                <div class="mb-3">
+                    <label class="form-label" data-i18n="or_upload">Or Upload New Files</label>
+                    <div class="drop-zone drop-zone-sm" id="structDropZone">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <small data-i18n="drop_folder_files">Drop folder or .txt files</small>
+                        <input type="file" id="structFileInput" multiple accept=".txt,.json" style="display:none">
+                    </div>
+                </div>
+
+                <button class="btn btn-primary w-100 btn-lg" onclick="runStructural()" id="btnRunStructural">
+                    <i class="fas fa-play me-2"></i><span data-i18n="btn_run">Run Analysis</span>
+                </button>
+
+                <!-- Info -->
+                <div class="mt-3 small text-muted">
+                    <div class="mb-1"><span class="badge bg-info">Distribution</span> → JS Divergence (↓ better)</div>
+                    <div><span class="badge bg-success">Trend</span> → Pearson r (↑ better)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Panel -->
+    <div class="col-lg-8">
+        <div id="structResults" style="display:none">
+            <!-- Summary Cards -->
+            <div id="structSummary" class="row g-3 mb-4"></div>
+
+            <!-- Comparison Table -->
+            <div class="card glass-card mb-4" id="structCompCard" style="display:none">
+                <div class="card-body">
+                    <h5><i class="fas fa-exchange-alt me-2"></i><span data-i18n="comparison">Comparison Results</span></h5>
+                    <div class="table-responsive" id="structCompTable"></div>
+                </div>
+            </div>
+
+            <!-- Plots -->
+            <div class="card glass-card">
+                <div class="card-body">
+                    <h5><i class="fas fa-chart-line me-2"></i><span data-i18n="visualizations">Visualizations</span></h5>
+                    <div id="structPlots" class="row g-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Placeholder -->
+        <div id="structPlaceholder" class="text-center py-5">
+            <i class="fas fa-chart-bar fa-4x text-muted mb-3"></i>
+            <h4 class="text-muted" data-i18n="struct_placeholder">Select files and run analysis</h4>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+<!-- Modal: Ask user which file is the real/ground-truth -->
+<div class="modal fade" id="realFileModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-question-circle text-warning me-2"></i>Select Ground-Truth File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>No file with <strong>"real"</strong> found in the selected files.<br>
+                   Please select which file is the <strong>real (ground-truth)</strong> hypergraph:</p>
+                <div id="realFileOptions"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="confirmRealFile()">
+                    <i class="fas fa-check me-1"></i>Confirm & Run
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadDatasetOptions('structDataset');
+    setupDropZone('structDropZone', 'structFileInput');
+});
+
+// Watch for folder drops — auto upload & select dataset
+document.getElementById('structDropZone')?.addEventListener('folderDropped', async e => {
+    const { folderName, files } = e.detail;
+    if (!folderName || files.length === 0) return;
+    await autoUploadAndSelect(folderName, files, 'structDataset', 'structFiles');
+});
+
+// ── Real file detection ──
+let _pendingFiles = [];
+let _pendingDataset = '';
+
+function runStructural() {
+    const dataset = document.getElementById('structDataset').value;
+    const checked = document.querySelectorAll('#structFiles input:checked');
+    const files = Array.from(checked).map(c => c.value);
+
+    if (!dataset || files.length < 1) {
+        showToast('Please select a dataset and at least 1 file', 'warning');
+        return;
+    }
+
+    // Auto-detect real file: look for "real" (case-insensitive) in filename
+    const realFile = files.find(f => f.toLowerCase().includes('real'));
+
+    if (realFile) {
+        // Found real file, run directly
+        doRunStructural(dataset, files, realFile);
+    } else if (files.length === 1) {
+        // Only 1 file, no comparison needed
+        doRunStructural(dataset, files, '');
+    } else {
+        // Multiple files but no "real" found → ask user
+        _pendingFiles = files;
+        _pendingDataset = dataset;
+        showRealFileModal(files);
+    }
+}
+
+function showRealFileModal(files) {
+    const container = document.getElementById('realFileOptions');
+    container.innerHTML = '';
+    files.forEach((f, i) => {
+        container.innerHTML += `
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="radio" name="realFileChoice" id="rfc_${i}" value="${f}" ${i===0?'checked':''}>
+                <label class="form-check-label" for="rfc_${i}">
+                    <i class="fas fa-file-alt me-1 text-muted"></i>${f}
+                </label>
+            </div>`;
+    });
+    new bootstrap.Modal(document.getElementById('realFileModal')).show();
+}
+
+function confirmRealFile() {
+    const selected = document.querySelector('input[name="realFileChoice"]:checked');
+    if (!selected) { showToast('Please select a file', 'warning'); return; }
+
+    bootstrap.Modal.getInstance(document.getElementById('realFileModal')).hide();
+    doRunStructural(_pendingDataset, _pendingFiles, selected.value);
+}
+
+function doRunStructural(dataset, files, realFile) {
+    showLoading('Running structural analysis...');
+    fetch('/api/structural/analyze', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ dataset, files, real_file: realFile })
+    })
+    .then(r => r.json())
+    .then(data => {
+        hideLoading();
+        if (data.error) { showToast(data.error, 'danger'); return; }
+        displayStructuralResults(data);
+    })
+    .catch(err => { hideLoading(); showToast('Error: ' + err, 'danger'); });
+}
+
+function displayStructuralResults(data) {
+    document.getElementById('structResults').style.display = 'block';
+    document.getElementById('structPlaceholder').style.display = 'none';
+    const realFile = data.real_file || '';
+
+    // Summaries — show real file first with a badge
+    const summaryDiv = document.getElementById('structSummary');
+    summaryDiv.innerHTML = '';
+    const sortedFiles = Object.keys(data.summaries).sort((a, b) => {
+        if (a === realFile) return -1;
+        if (b === realFile) return 1;
+        return a.localeCompare(b);
+    });
+    for (const fname of sortedFiles) {
+        const s = data.summaries[fname];
+        const isReal = fname === realFile;
+        const badge = isReal ? '<span class="badge bg-success ms-1">Real</span>' : '';
+        const border = isReal ? 'border: 2px solid var(--accent-green);' : '';
+        summaryDiv.innerHTML += `
+            <div class="col-md-6">
+                <div class="card glass-card-inner" style="${border}">
+                    <div class="card-body">
+                        <h6 class="text-truncate" title="${fname}">
+                            <i class="fas ${isReal ? 'fa-star text-success' : 'fa-file-alt text-muted'} me-1"></i>${fname}${badge}
+                        </h6>
+                        <div class="d-flex justify-content-between small">
+                            <span>Nodes: <strong>${s.nodes}</strong></span>
+                            <span>Edges: <strong>${s.edges}</strong></span>
+                            <span>Avg Size: <strong>${s.avg_edge_size}</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    // Comparison table: each column = one generated file vs Real
+    const compCard = document.getElementById('structCompCard');
+    const compDiv = document.getElementById('structCompTable');
+    if (data.comparisons && Object.keys(data.comparisons).length > 0) {
+        compCard.style.display = 'block';
+        const genFiles = Object.keys(data.comparisons);  // each key is a generated filename
+
+        let html = `<div class="mb-2 small text-muted"><i class="fas fa-star text-success me-1"></i>Reference: <strong>${realFile}</strong></div>`;
+        html += '<table class="table table-light-custom table-hover"><thead><tr><th>Metric</th><th>Type</th>';
+        genFiles.forEach(gf => html += `<th title="${gf} vs ${realFile}">${gf}</th>`);
+        html += '</tr></thead><tbody>';
+
+        for (let mid = 1; mid <= 8; mid++) {
+            const first = data.comparisons[genFiles[0]][mid];
+            if (!first) continue;
+            html += `<tr><td>${first.metric}</td><td><span class="badge ${first.type === 'distribution' ? 'bg-info' : 'bg-success'}">${first.score_label}</span></td>`;
+            genFiles.forEach(gf => {
+                const c = data.comparisons[gf][mid];
+                const score = c && c.score !== null ? c.score.toFixed(4) : 'N/A';
+                const cls = c && c.score !== null ? (c.type === 'distribution' ? getJSDClass(c.score) : getPCCClass(c.score)) : '';
+                html += `<td class="${cls}"><strong>${score}</strong></td>`;
+            });
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+        compDiv.innerHTML = html;
+    } else {
+        compCard.style.display = 'none';
+    }
+
+    // Plots
+    const plotsDiv = document.getElementById('structPlots');
+    plotsDiv.innerHTML = '';
+    for (const [fname, plots] of Object.entries(data.plots)) {
+        for (const [mid, img] of Object.entries(plots)) {
+            const minfo = data.results[fname][mid];
+            const isReal = fname === realFile;
+            plotsDiv.innerHTML += `
+                <div class="col-md-6">
+                    <div class="plot-card" ${isReal ? 'style="border-color:var(--accent-green)"' : ''}>
+                        <div class="plot-label">
+                            ${isReal ? '<i class="fas fa-star text-success me-1"></i>' : ''}
+                            ${fname} — ${minfo.name}
+                        </div>
+                        <img src="data:image/png;base64,${img}" class="img-fluid rounded" alt="${minfo.name}">
+                    </div>
+                </div>`;
+        }
+    }
+}
+
+function getJSDClass(v) { return v < 0.05 ? 'text-success' : v < 0.2 ? 'text-warning' : 'text-danger'; }
+function getPCCClass(v) { return v > 0.9 ? 'text-success' : v > 0.7 ? 'text-warning' : 'text-danger'; }
+</script>
+{% endblock %}
