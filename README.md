@@ -6,18 +6,6 @@ This repository is the official implementation of **HyMAGE: Semantic-Aware Dynam
 
 ![Main Mechanism](Fig/Main.png)
 
-## Pipeline
-
-```mermaid
-flowchart LR
-    A[Entity Generation] --> B[Entity Profiles]
-    B --> C[Semantic PA Hypergraph Generation]
-    D[Reference Hypergraph] --> C
-    C --> E[Synthetic Hypergraph]
-    E --> F[Structural Analysis]
-    E --> G[Annotation Tool]
-```
-
 ## Key Features
 
 - **Semantic Preferential Attachment**: Nodes form and dissolve hyperedges via LLM-based semantic reasoning.
